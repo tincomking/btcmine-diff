@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTC Difficulty Forecast — 比特币难度预测</title>
+  <meta name="description" content="Bitcoin mining difficulty forecast model with supply-demand equilibrium analysis, covering 1-year projections under multiple scenarios.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%23F7931A'/><text x='50' y='68' font-size='58' font-weight='bold' fill='white' text-anchor='middle' font-family='Arial'>D</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3/dist/chartjs-plugin-annotation.min.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+<header id="header">
+  <a class="logo" href="#">
+    <div>
+      <svg viewBox="0 0 40 40" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="19" fill="#F7931A"/>
+        <text x="20" y="27" font-size="20" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial,sans-serif">D</text>
+      </svg>
+    </div>
+    <div>
+      <div class="logo-text">Difficulty Forecast</div>
+      <div class="logo-badge">Supply-Demand Model</div>
+    </div>
+  </a>
+
+  <nav class="header-nav">
+    <button class="nav-tab active" data-page="overview">概览</button>
+    <button class="nav-tab" data-page="forecast">难度预测</button>
+    <button class="nav-tab" data-page="scenarios">情景分析</button>
+    <button class="nav-tab" data-page="methodology">模型说明</button>
+  </nav>
+
+  <div class="header-right">
+    <div class="btc-ticker">
+      <span style="color:var(--orange);font-size:11px;font-weight:700;">BTC</span>
+      <span class="btc-price" id="btcPrice">--</span>
+      <span class="btc-change-pos" id="btcChange">--</span>
+    </div>
+    <span class="data-badge" id="statusBadge">LOADING</span>
+    <div class="toggle-group">
+      <button class="toggle-btn" id="themeToggle" title="切换主题">☀</button>
+      <button class="toggle-btn" id="langToggle" title="Switch Language">EN</button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════ APP ═══════════════════════════ -->
+<div id="app">
+
+  <!-- ─────────── PAGE: OVERVIEW ─────────── -->
+  <div class="page active" id="page-overview">
+
+    <div class="site-intro">
+      <div class="site-intro-title" id="introTitle">关于本站</div>
+      <p class="site-intro-text" id="introText">本平台基于供需均衡模型预测比特币挖矿难度，覆盖未来 12 个月。模型综合 BTC 价格路径、ASIC 产能与效率趋势、全网电力成本、区块补贴减半等因素，输出均衡算力与难度预测。支持牛市/基准/熊市三种情景对比。</p>
+    </div>
+
+    <!-- Current Stats -->
+    <div class="section-title"><span class="icon">⛏</span> <span id="lblCurrentStats">当前网络状态</span></div>
+    <div class="stats-grid" id="currentStats">
+      <div class="stat-card">
+        <div class="stat-label" id="lblDifficulty">当前难度</div>
+        <div class="stat-value" id="statDifficulty">--</div>
+        <div class="stat-sub" id="statDiffSub">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="lblHashrate">全网算力</div>
+        <div class="stat-value" id="statHashrate">--</div>
+        <div class="stat-sub" id="statHashrateSub">24h average</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="lblBlockHeight">区块高度</div>
+        <div class="stat-value" id="statBlockHeight">--</div>
+        <div class="stat-sub" id="statBlockSub">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="lblNextAdj">下次调整预估</div>
+        <div class="stat-value" id="statNextAdj">--</div>
+        <div class="stat-sub" id="statNextAdjSub">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="lblBlockReward">区块奖励</div>
+        <div class="stat-value" id="statBlockReward">3.125 BTC</div>
+        <div class="stat-sub" id="statRewardSub">Halving #4 · 2024.04</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="lblHashprice">Hashprice</div>
+        <div class="stat-value" id="statHashprice">--</div>
+        <div class="stat-sub">USD/TH/day</div>
+      </div>
+    </div>
+
+    <!-- Historical Difficulty Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartHistTitle">历史难度（2年）</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartHistorical"></canvas>
+      </div>
+    </div>
+
+    <!-- Historical Hashrate Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartHashrateTitle">历史算力（2年）</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartHashrate"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────── PAGE: FORECAST ─────────── -->
+  <div class="page" id="page-forecast">
+
+    <div class="section-title"><span class="icon">📈</span> <span id="lblForecast">难度预测 — 12个月</span></div>
+
+    <!-- Parameter Controls -->
+    <div class="controls-panel">
+      <div class="controls-title" id="lblParams">模型参数</div>
+      <div class="controls-grid">
+        <div class="control-group">
+          <label class="control-label" id="lblPriceCurr">当前 BTC 价格 (USD)</label>
+          <input type="number" class="control-input" id="paramBtcPrice" value="86000">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblPriceEnd">目标 BTC 价格 (USD)</label>
+          <input type="number" class="control-input" id="paramBtcPriceEnd" value="120000">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblPricePath">价格路径</label>
+          <select class="control-input" id="paramPricePath">
+            <option value="linear">线性</option>
+            <option value="front-loaded">先涨后平</option>
+            <option value="back-loaded">先平后涨</option>
+            <option value="cycle">冲高回落</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblElectricity">电费 ($/kWh)</label>
+          <input type="number" class="control-input" id="paramElectricity" value="0.055" step="0.005">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblAsicNow">当前 ASIC 效率 (J/TH)</label>
+          <input type="number" class="control-input" id="paramAsicNow" value="21.5" step="0.5">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblAsicEnd">年末 ASIC 效率 (J/TH)</label>
+          <input type="number" class="control-input" id="paramAsicEnd" value="15.0" step="0.5">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblMargin">矿工利润率</label>
+          <input type="number" class="control-input" id="paramMargin" value="0.40" step="0.05" min="0.1" max="0.7">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblMaxGrowth">Epoch 最大增长率</label>
+          <input type="number" class="control-input" id="paramMaxGrowth" value="0.04" step="0.01">
+        </div>
+        <div class="control-group">
+          <label class="control-label" id="lblMonths">预测月数</label>
+          <input type="number" class="control-input" id="paramMonths" value="12" min="3" max="24">
+        </div>
+      </div>
+      <button class="btn-run" id="btnRunForecast">运行预测</button>
+    </div>
+
+    <!-- Forecast Difficulty Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartFcTitle">难度预测曲线</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div> <span id="lgdDiff">预测难度</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> <span id="lgdPrice">BTC 价格</span></div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartForecastDiff"></canvas>
+      </div>
+    </div>
+
+    <!-- Forecast Hashrate & Hashprice -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartFcHash">算力 & Hashprice 预测</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-cyan)"></div> <span>算力 (EH/s)</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> <span>Hashprice</span></div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartForecastHash"></canvas>
+      </div>
+    </div>
+
+    <!-- Epoch Table -->
+    <div class="table-container">
+      <div class="table-header">
+        <div class="table-title" id="tblFcTitle">逐 Epoch 预测数据</div>
+      </div>
+      <div class="table-scroll">
+        <table id="forecastTable">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>BTC 价格</th>
+              <th>难度 (T)</th>
+              <th>算力 (EH/s)</th>
+              <th>Hashprice</th>
+              <th>ASIC 效率</th>
+              <th>矿工成本/BTC</th>
+            </tr>
+          </thead>
+          <tbody id="forecastTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────── PAGE: SCENARIOS ─────────── -->
+  <div class="page" id="page-scenarios">
+
+    <div class="section-title"><span class="icon">🔮</span> <span id="lblScenarios">三情景对比分析</span></div>
+    <p class="section-subtitle" id="scenSubtitle">牛市、基准、熊市情景下的难度预测对比。基于当前网络参数，未来 12 个月。</p>
+
+    <!-- Scenario Summary Cards -->
+    <div class="scenario-summary" id="scenarioSummary"></div>
+
+    <!-- Multi-scenario Difficulty Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartScenDiff">难度预测 — 三情景对比</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> 牛市</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div> 基准</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> 熊市</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartScenarios"></canvas>
+      </div>
+    </div>
+
+    <!-- Multi-scenario Hashrate Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartScenHash">算力预测 — 三情景对比</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartScenariosHash"></canvas>
+      </div>
+    </div>
+
+    <!-- Multi-scenario Price Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartScenPrice">BTC 价格路径 — 三情景</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartScenariosPrice"></canvas>
+      </div>
+    </div>
+
+    <!-- Scenario Table -->
+    <div class="table-container">
+      <div class="table-header">
+        <div class="table-title" id="tblScenTitle">情景终值对比</div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>指标</th>
+              <th style="color:var(--green)">牛市</th>
+              <th style="color:var(--accent-blue)">基准</th>
+              <th style="color:var(--red)">熊市</th>
+            </tr>
+          </thead>
+          <tbody id="scenarioTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────── PAGE: METHODOLOGY ─────────── -->
+  <div class="page" id="page-methodology">
+
+    <div class="section-title"><span class="icon">📐</span> <span id="lblMethod">模型说明</span></div>
+
+    <div class="method-card">
+      <div class="method-title">供需均衡框架</div>
+      <div class="method-text">
+        本模型将比特币难度视为算力的确定性函数，核心问题转化为预测全网算力。算力由矿工的经济行为驱动：当挖矿利润高于成本时矿工进入，反之退出，最终趋向均衡。
+      </div>
+      <div class="method-formula">
+        difficulty = hashrate(H/s) × 600 / 2^32
+      </div>
+      <div class="method-text" style="margin-top:16px;">
+        <span class="method-tag tag-input">需求侧</span> BTC 价格 × 区块奖励 × 每日出块数 + 手续费 = 每日总收入
+      </div>
+      <div class="method-formula">
+        daily_revenue = block_reward × 144 × btc_price + daily_fees
+      </div>
+      <div class="method-text" style="margin-top:16px;">
+        <span class="method-tag tag-input">供给侧</span> ASIC 效率 × 运行时间 × 电价 = 每 TH/s 每日成本
+      </div>
+      <div class="method-formula">
+        cost_per_TH_day = asic_efficiency(J/TH) × 86400 / 1e9 × electricity($/kWh)
+      </div>
+      <div class="method-text" style="margin-top:16px;">
+        <span class="method-tag tag-output">均衡算力</span> 在目标利润率下，市场能支撑的最大算力
+      </div>
+      <div class="method-formula">
+        equilibrium_hashrate = daily_revenue / (cost_per_TH_day / (1 - margin))
+      </div>
+    </div>
+
+    <div class="method-card">
+      <div class="method-title">增长约束</div>
+      <div class="method-text">
+        算力不能瞬间跳到均衡值——受 ASIC 制造、部署、基础设施建设限制。模型对每个 epoch（~14天）施加最大增长/下降率约束：
+      </div>
+      <div class="method-formula">
+        hashrate[t] = clamp(equilibrium, hashrate[t-1] × (1 + max_decline), hashrate[t-1] × (1 + max_growth))
+      </div>
+      <div class="method-text" style="margin-top:12px;">
+        <span class="method-tag tag-param">参数</span> 默认 max_growth = 4%/epoch, max_decline = -5%/epoch
+      </div>
+    </div>
+
+    <div class="method-card">
+      <div class="method-title">关键假设与输入</div>
+      <div class="method-text">
+        <strong>BTC 价格路径：</strong>支持线性、先涨后平、先平后涨、冲高回落四种插值。价格是模型最敏感的输入——研究表明价格对算力有强因果驱动。
+      </div>
+      <div class="method-text">
+        <strong>ASIC 效率趋势：</strong>全网加权平均效率从当前 ~21.5 J/TH 逐步降至 ~15 J/TH（12个月）。反映新一代矿机（S21 XP 13.5 J/TH）逐步替换老旧设备。
+      </div>
+      <div class="method-text">
+        <strong>电费：</strong>全球加权平均 $0.055/kWh，反映大型矿场实际综合电价（含 PPA、curtailment）。
+      </div>
+      <div class="method-text">
+        <strong>矿工利润率：</strong>目标 40%，涵盖资本支出（矿机折旧）、托管费、运营开支。
+      </div>
+    </div>
+
+    <div class="method-card">
+      <div class="method-title">参考来源</div>
+      <div class="method-text">
+        模型框架参考 <a href="https://hashrateindex.com/blog/difficulty-forecasting-101-for-bitcoin-miners-hosters-lenders-and-hashrate-traders/" target="_blank" style="color:var(--accent-blue)">Hashrate Index Difficulty Forecasting 101</a>
+        及 <a href="https://bitcoinmagazine.com/technical/predicting-bitcoin-mining-difficulty" target="_blank" style="color:var(--accent-blue)">Bitcoin Magazine Rolling-Block Method</a>。
+        价格→算力因果关系参考 <a href="https://www.sciencedirect.com/science/article/abs/pii/S1057521922003258" target="_blank" style="color:var(--accent-blue)">ScienceDirect: BTC Price-Hashrate Endogenous System</a>。
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
+<div class="footer">
+  <span>BTC Difficulty Forecast · Supply-Demand Equilibrium Model · <a href="https://btcmine.info" target="_blank">btcmine.info</a></span>
+</div>
+
+<script src="js/model.js"></script>
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
