@@ -14,6 +14,7 @@
   const charts = {};
   let lang = 'zh';
   let scenarioResults = null;
+  let data = null;
 
   // ── Navigation ──────────────────────────────────────────
   document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -40,6 +41,10 @@
     lang = lang === 'zh' ? 'en' : 'zh';
     langBtn.textContent = lang === 'zh' ? 'EN' : '中';
     applyLang();
+    // Re-render scenario if available
+    if (scenarioResults) {
+      try { renderScenarioSummary(); renderScenarioTable(); } catch(e) {}
+    }
   });
 
   const i18n = {
@@ -90,17 +95,17 @@
   // ── Helpers ─────────────────────────────────────────────
   function fmt(n, decimals = 0) {
     if (n == null || isNaN(n)) return '--';
-    return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   }
 
   function fmtT(n) {
-    if (n == null) return '--';
-    return (n / 1e12).toFixed(2) + ' T';
+    if (n == null || isNaN(n)) return '--';
+    return (Number(n) / 1e12).toFixed(2) + ' T';
   }
 
   function fmtEH(n) {
-    if (n == null) return '--';
-    return n.toFixed(1) + ' EH/s';
+    if (n == null || isNaN(n)) return '--';
+    return Number(n).toFixed(1) + ' EH/s';
   }
 
   function getChartTextColor() {
@@ -117,7 +122,7 @@
     for (const chart of Object.values(charts)) {
       if (!chart) continue;
       Chart.defaults.color = textColor;
-      if (chart.options.scales) {
+      if (chart.options && chart.options.scales) {
         for (const axis of Object.values(chart.options.scales)) {
           if (axis.ticks) axis.ticks.color = textColor;
           if (axis.grid) axis.grid.color = gridColor;
@@ -127,151 +132,162 @@
     }
   }
 
-  // ── Load data & initialize ──────────────────────────────
-  const data = await DataLoader.loadAll();
-
-  // Update status
-  document.getElementById('statusBadge').textContent = 'LIVE';
-  document.getElementById('statusBadge').style.color = 'var(--green)';
-
-  // BTC price
-  if (data.btcPrice) {
-    document.getElementById('btcPrice').textContent = '$' + fmt(data.btcPrice.price);
-    const changeEl = document.getElementById('btcChange');
-    const ch = data.btcPrice.change24h;
-    changeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
-    changeEl.className = ch >= 0 ? 'btc-change-pos' : 'btc-change-neg';
-    // Update param default
-    document.getElementById('paramBtcPrice').value = Math.round(data.btcPrice.price);
+  function setStatus(text, color) {
+    const el = document.getElementById('statusBadge');
+    if (el) { el.textContent = text; el.style.color = color; }
   }
 
-  // Network stats
-  if (data.networkStats) {
-    const ns = data.networkStats;
-    document.getElementById('statDifficulty').textContent = fmtT(ns.difficulty);
-    document.getElementById('statDiffSub').textContent = fmt(ns.difficulty);
-    document.getElementById('statHashrate').textContent = fmtEH(ns.hashrateEH);
-    document.getElementById('statBlockHeight').textContent = fmt(ns.blockHeight);
-    document.getElementById('statBlockSub').textContent = ns.bestBlockTime || '--';
-
-    if (ns.nextDifficultyEstimate) {
-      const change = ((ns.nextDifficultyEstimate - ns.difficulty) / ns.difficulty * 100);
-      document.getElementById('statNextAdj').textContent = fmtT(ns.nextDifficultyEstimate);
-      const subEl = document.getElementById('statNextAdjSub');
-      subEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
-      subEl.classList.add(change >= 0 ? 'up' : 'down');
-      subEl.style.color = change >= 0 ? 'var(--green)' : 'var(--red)';
-    }
-
-    // Hashprice = daily_revenue_per_TH
-    if (data.btcPrice && ns.hashrateEH) {
-      const dailyRev = 3.125 * 144 * data.btcPrice.price;
-      const hashrateTH = ns.hashrateEH * 1e6;
-      const hashprice = dailyRev / hashrateTH;
-      document.getElementById('statHashprice').textContent = '$' + hashprice.toFixed(4);
-    }
+  // ── Load data ───────────────────────────────────────────
+  try {
+    setStatus('LOADING', 'var(--orange)');
+    data = await DataLoader.loadAll();
+    const hasAny = data.difficulty || data.btcPrice || data.networkStats || data.hashrate;
+    setStatus(hasAny ? 'LIVE' : 'OFFLINE', hasAny ? 'var(--green)' : 'var(--red)');
+  } catch (e) {
+    console.error('[App] loadAll failed:', e);
+    setStatus('ERROR', 'var(--red)');
+    data = { difficulty: null, btcPrice: null, networkStats: null, hashrate: null };
   }
+
+  // ── BTC price ───────────────────────────────────────────
+  try {
+    if (data.btcPrice) {
+      document.getElementById('btcPrice').textContent = '$' + fmt(data.btcPrice.price);
+      const changeEl = document.getElementById('btcChange');
+      const ch = data.btcPrice.change24h || 0;
+      changeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+      changeEl.className = ch >= 0 ? 'btc-change-pos' : 'btc-change-neg';
+      document.getElementById('paramBtcPrice').value = Math.round(data.btcPrice.price);
+    }
+  } catch (e) { console.warn('[App] BTC price render error:', e); }
+
+  // ── Network stats ───────────────────────────────────────
+  try {
+    if (data.networkStats) {
+      const ns = data.networkStats;
+      document.getElementById('statDifficulty').textContent = fmtT(ns.difficulty);
+      document.getElementById('statDiffSub').textContent = fmt(ns.difficulty);
+      document.getElementById('statHashrate').textContent = fmtEH(ns.hashrateEH);
+      document.getElementById('statBlockHeight').textContent = fmt(ns.blockHeight);
+      document.getElementById('statBlockSub').textContent = ns.bestBlockTime || '--';
+
+      if (ns.nextDifficultyEstimate) {
+        const change = ((ns.nextDifficultyEstimate - ns.difficulty) / ns.difficulty * 100);
+        document.getElementById('statNextAdj').textContent = fmtT(ns.nextDifficultyEstimate);
+        const subEl = document.getElementById('statNextAdjSub');
+        subEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+        subEl.style.color = change >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+
+      // Hashprice = daily_revenue_per_TH
+      const btcPrice = data.btcPrice ? data.btcPrice.price : 69000;
+      if (ns.hashrateEH > 0) {
+        const dailyRev = 3.125 * 144 * btcPrice;
+        const hashrateTH = ns.hashrateEH * 1e6;
+        const hashprice = dailyRev / hashrateTH;
+        document.getElementById('statHashprice').textContent = '$' + hashprice.toFixed(4);
+      }
+    }
+  } catch (e) { console.warn('[App] Network stats render error:', e); }
 
   // ── Historical Difficulty Chart ─────────────────────────
-  if (data.difficulty && data.difficulty.length > 1) {
-    const ctx = document.getElementById('chartHistorical').getContext('2d');
-    charts.historical = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: data.difficulty.map(d => d.date),
-        datasets: [{
-          data: data.difficulty.map(d => d.difficultyT),
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245,158,11,0.08)',
-          fill: true,
-          pointRadius: 0,
-          borderWidth: 2,
-          tension: 0.3,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-          x: {
-            type: 'time',
-            time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), maxTicksLimit: 12 },
-          },
-          y: {
-            title: { display: true, text: 'Difficulty (T)', color: getChartTextColor() },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) + 'T' },
-          }
+  try {
+    if (data.difficulty && data.difficulty.length > 1) {
+      const ctx = document.getElementById('chartHistorical').getContext('2d');
+      charts.historical = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.difficulty.map(d => d.date),
+          datasets: [{
+            data: data.difficulty.map(d => d.difficultyT),
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245,158,11,0.08)',
+            fill: true,
+            pointRadius: 0,
+            borderWidth: 2,
+            tension: 0.3,
+          }]
         },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: ctx => 'Difficulty: ' + ctx.parsed.y.toFixed(2) + ' T'
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
+              grid: { color: getChartGridColor() },
+              ticks: { color: getChartTextColor(), maxTicksLimit: 12 },
+            },
+            y: {
+              title: { display: true, text: 'Difficulty (T)', color: getChartTextColor() },
+              grid: { color: getChartGridColor() },
+              ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) + 'T' },
             }
+          },
+          plugins: {
+            tooltip: { callbacks: { label: c => 'Difficulty: ' + c.parsed.y.toFixed(2) + ' T' } }
           }
         }
-      }
-    });
-  }
+      });
+    }
+  } catch (e) { console.warn('[App] Historical difficulty chart error:', e); }
 
   // ── Historical Hashrate Chart ───────────────────────────
-  if (data.hashrate && data.hashrate.length > 1) {
-    const ctx = document.getElementById('chartHashrate').getContext('2d');
-    charts.hashrate = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: data.hashrate.map(d => d.date),
-        datasets: [{
-          data: data.hashrate.map(d => d.hashrateEH),
-          borderColor: '#06b6d4',
-          backgroundColor: 'rgba(6,182,212,0.08)',
-          fill: true,
-          pointRadius: 0,
-          borderWidth: 2,
-          tension: 0.3,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-          x: {
-            type: 'time',
-            time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), maxTicksLimit: 12 },
-          },
-          y: {
-            title: { display: true, text: 'Hashrate (EH/s)', color: getChartTextColor() },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) },
-          }
+  try {
+    if (data.hashrate && data.hashrate.length > 1) {
+      const ctx = document.getElementById('chartHashrate').getContext('2d');
+      charts.hashrate = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.hashrate.map(d => d.date),
+          datasets: [{
+            data: data.hashrate.map(d => d.hashrateEH),
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6,182,212,0.08)',
+            fill: true,
+            pointRadius: 0,
+            borderWidth: 2,
+            tension: 0.3,
+          }]
         },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: ctx => 'Hashrate: ' + ctx.parsed.y.toFixed(1) + ' EH/s'
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
+              grid: { color: getChartGridColor() },
+              ticks: { color: getChartTextColor(), maxTicksLimit: 12 },
+            },
+            y: {
+              title: { display: true, text: 'Hashrate (EH/s)', color: getChartTextColor() },
+              grid: { color: getChartGridColor() },
+              ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) },
             }
+          },
+          plugins: {
+            tooltip: { callbacks: { label: c => 'Hashrate: ' + c.parsed.y.toFixed(1) + ' EH/s' } }
           }
         }
-      }
-    });
-  }
+      });
+    }
+  } catch (e) { console.warn('[App] Historical hashrate chart error:', e); }
 
-  // ── Forecast: run on button click ───────────────────────
+  // ── Forecast ────────────────────────────────────────────
   document.getElementById('btnRunForecast').addEventListener('click', runCustomForecast);
 
   function getParams() {
+    const ns = data && data.networkStats;
+    const price = data && data.btcPrice;
     return {
-      currentDifficulty: data.networkStats ? data.networkStats.difficulty : 114.17e12,
-      currentHashrateEH: data.networkStats ? data.networkStats.hashrateEH : 850,
-      currentBtcPrice: parseFloat(document.getElementById('paramBtcPrice').value) || 86000,
+      currentDifficulty: ns ? ns.difficulty : 144e12,
+      currentHashrateEH: ns ? ns.hashrateEH : 950,
+      currentBtcPrice: parseFloat(document.getElementById('paramBtcPrice').value) || (price ? price.price : 69000),
       currentDate: new Date(),
-      currentBlockHeight: data.networkStats ? data.networkStats.blockHeight : 885000,
+      currentBlockHeight: ns ? ns.blockHeight : 939000,
       btcPriceEnd: parseFloat(document.getElementById('paramBtcPriceEnd').value) || 120000,
       btcPricePath: document.getElementById('paramPricePath').value,
       electricityRate: parseFloat(document.getElementById('paramElectricity').value) || 0.055,
@@ -286,10 +302,12 @@
   }
 
   function runCustomForecast() {
-    const params = getParams();
-    const result = DifficultyModel.runForecast(params);
-    renderForecastCharts(result);
-    renderForecastTable(result);
+    try {
+      const params = getParams();
+      const result = DifficultyModel.runForecast(params);
+      renderForecastCharts(result);
+      renderForecastTable(result);
+    } catch (e) { console.error('[App] Forecast error:', e); }
   }
 
   function renderForecastCharts(result) {
@@ -352,9 +370,9 @@
         plugins: {
           tooltip: {
             callbacks: {
-              label: ctx => {
-                if (ctx.datasetIndex === 0) return 'Difficulty: ' + ctx.parsed.y.toFixed(2) + ' T';
-                return 'BTC: $' + fmt(ctx.parsed.y);
+              label: c => {
+                if (c.datasetIndex === 0) return 'Difficulty: ' + c.parsed.y.toFixed(2) + ' T';
+                return 'BTC: $' + fmt(c.parsed.y);
               }
             }
           }
@@ -436,25 +454,28 @@
     `).join('');
   }
 
-  // ── Scenarios: auto-run on page load ────────────────────
+  // ── Scenarios ───────────────────────────────────────────
   function runScenarios() {
-    const baseParams = {
-      currentDifficulty: data.networkStats ? data.networkStats.difficulty : 114.17e12,
-      currentHashrateEH: data.networkStats ? data.networkStats.hashrateEH : 850,
-      currentBtcPrice: data.btcPrice ? data.btcPrice.price : 86000,
-      currentDate: new Date(),
-      currentBlockHeight: data.networkStats ? data.networkStats.blockHeight : 885000,
-      electricityRate: 0.055,
-      asicEfficiencyNow: 21.5,
-      asicEfficiencyEnd: 15.0,
-      minerMargin: 0.40,
-      forecastMonths: 12,
-    };
-
-    scenarioResults = DifficultyModel.multiScenario(baseParams);
-    renderScenarioSummary();
-    renderScenarioCharts();
-    renderScenarioTable();
+    try {
+      const ns = data && data.networkStats;
+      const price = data && data.btcPrice;
+      const baseParams = {
+        currentDifficulty: ns ? ns.difficulty : 144e12,
+        currentHashrateEH: ns ? ns.hashrateEH : 950,
+        currentBtcPrice: price ? price.price : 69000,
+        currentDate: new Date(),
+        currentBlockHeight: ns ? ns.blockHeight : 939000,
+        electricityRate: 0.055,
+        asicEfficiencyNow: 21.5,
+        asicEfficiencyEnd: 15.0,
+        minerMargin: 0.40,
+        forecastMonths: 12,
+      };
+      scenarioResults = DifficultyModel.multiScenario(baseParams);
+      renderScenarioSummary();
+      renderScenarioCharts();
+      renderScenarioTable();
+    } catch (e) { console.error('[App] Scenario error:', e); }
   }
 
   function renderScenarioSummary() {
@@ -466,7 +487,6 @@
       const last = d[d.length - 1];
       const diffChange = ((last.difficultyT - first.difficultyT) / first.difficultyT * 100).toFixed(1);
       const hashChange = ((last.hashrateEH - first.hashrateEH) / first.hashrateEH * 100).toFixed(1);
-
       return `
         <div class="scenario-card ${key}">
           <div class="scenario-card-title">${lang === 'zh' ? s.label : s.labelEn}</div>
@@ -500,119 +520,90 @@
     container.innerHTML = html;
   }
 
+  function makeTimeScaleOpts() {
+    return {
+      type: 'time',
+      time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
+      grid: { color: getChartGridColor() },
+      ticks: { color: getChartTextColor() },
+    };
+  }
+
   function renderScenarioCharts() {
+    const legendOpts = { display: true, position: 'top', labels: { color: getChartTextColor(), usePointStyle: true, pointStyle: 'circle' } };
+
     // Difficulty comparison
     if (charts.scenDiff) charts.scenDiff.destroy();
-    const ctx1 = document.getElementById('chartScenarios').getContext('2d');
-    const datasets1 = ['bull', 'base', 'bear'].map(key => {
-      const s = scenarioResults[key];
-      return {
-        label: lang === 'zh' ? s.label : s.labelEn,
-        data: s.data.map(r => ({ x: r.date, y: r.difficultyT })),
-        borderColor: s.color,
-        backgroundColor: s.color + '14',
-        fill: key === 'base',
-        pointRadius: 2,
-        borderWidth: 2,
-        tension: 0.3,
-      };
-    });
-    charts.scenDiff = new Chart(ctx1, {
+    charts.scenDiff = new Chart(document.getElementById('chartScenarios').getContext('2d'), {
       type: 'line',
-      data: { datasets: datasets1 },
+      data: {
+        datasets: ['bull', 'base', 'bear'].map(key => {
+          const s = scenarioResults[key];
+          return {
+            label: lang === 'zh' ? s.label : s.labelEn,
+            data: s.data.map(r => ({ x: r.date, y: r.difficultyT })),
+            borderColor: s.color, backgroundColor: s.color + '14',
+            fill: key === 'base', pointRadius: 2, borderWidth: 2, tension: 0.3,
+          };
+        })
+      },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: true, position: 'top', labels: { color: getChartTextColor(), usePointStyle: true, pointStyle: 'circle' } } },
+        plugins: { legend: legendOpts },
         scales: {
-          x: {
-            type: 'time',
-            time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor() },
-          },
-          y: {
-            title: { display: true, text: 'Difficulty (T)', color: getChartTextColor() },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) + 'T' },
-          }
+          x: makeTimeScaleOpts(),
+          y: { title: { display: true, text: 'Difficulty (T)', color: getChartTextColor() }, grid: { color: getChartGridColor() }, ticks: { color: getChartTextColor(), callback: v => v.toFixed(0) + 'T' } }
         },
       }
     });
 
     // Hashrate comparison
     if (charts.scenHash) charts.scenHash.destroy();
-    const ctx2 = document.getElementById('chartScenariosHash').getContext('2d');
-    const datasets2 = ['bull', 'base', 'bear'].map(key => {
-      const s = scenarioResults[key];
-      return {
-        label: lang === 'zh' ? s.label : s.labelEn,
-        data: s.data.map(r => ({ x: r.date, y: r.hashrateEH })),
-        borderColor: s.color,
-        pointRadius: 2,
-        borderWidth: 2,
-        tension: 0.3,
-      };
-    });
-    charts.scenHash = new Chart(ctx2, {
+    charts.scenHash = new Chart(document.getElementById('chartScenariosHash').getContext('2d'), {
       type: 'line',
-      data: { datasets: datasets2 },
+      data: {
+        datasets: ['bull', 'base', 'bear'].map(key => {
+          const s = scenarioResults[key];
+          return {
+            label: lang === 'zh' ? s.label : s.labelEn,
+            data: s.data.map(r => ({ x: r.date, y: r.hashrateEH })),
+            borderColor: s.color, pointRadius: 2, borderWidth: 2, tension: 0.3,
+          };
+        })
+      },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: true, position: 'top', labels: { color: getChartTextColor(), usePointStyle: true, pointStyle: 'circle' } } },
+        plugins: { legend: legendOpts },
         scales: {
-          x: {
-            type: 'time',
-            time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor() },
-          },
-          y: {
-            title: { display: true, text: 'Hashrate (EH/s)', color: getChartTextColor() },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor() },
-          }
+          x: makeTimeScaleOpts(),
+          y: { title: { display: true, text: 'Hashrate (EH/s)', color: getChartTextColor() }, grid: { color: getChartGridColor() }, ticks: { color: getChartTextColor() } }
         },
       }
     });
 
     // Price path comparison
     if (charts.scenPrice) charts.scenPrice.destroy();
-    const ctx3 = document.getElementById('chartScenariosPrice').getContext('2d');
-    const datasets3 = ['bull', 'base', 'bear'].map(key => {
-      const s = scenarioResults[key];
-      return {
-        label: lang === 'zh' ? s.label : s.labelEn,
-        data: s.data.map(r => ({ x: r.date, y: r.btcPrice })),
-        borderColor: s.color,
-        pointRadius: 2,
-        borderWidth: 2,
-        tension: 0.3,
-      };
-    });
-    charts.scenPrice = new Chart(ctx3, {
+    charts.scenPrice = new Chart(document.getElementById('chartScenariosPrice').getContext('2d'), {
       type: 'line',
-      data: { datasets: datasets3 },
+      data: {
+        datasets: ['bull', 'base', 'bear'].map(key => {
+          const s = scenarioResults[key];
+          return {
+            label: lang === 'zh' ? s.label : s.labelEn,
+            data: s.data.map(r => ({ x: r.date, y: r.btcPrice })),
+            borderColor: s.color, pointRadius: 2, borderWidth: 2, tension: 0.3,
+          };
+        })
+      },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: true, position: 'top', labels: { color: getChartTextColor(), usePointStyle: true, pointStyle: 'circle' } } },
+        plugins: { legend: legendOpts },
         scales: {
-          x: {
-            type: 'time',
-            time: { unit: 'month', displayFormats: { month: 'yyyy-MM' } },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor() },
-          },
-          y: {
-            title: { display: true, text: 'BTC Price ($)', color: getChartTextColor() },
-            grid: { color: getChartGridColor() },
-            ticks: { color: getChartTextColor(), callback: v => '$' + (v / 1000).toFixed(0) + 'k' },
-          }
+          x: makeTimeScaleOpts(),
+          y: { title: { display: true, text: 'BTC Price ($)', color: getChartTextColor() }, grid: { color: getChartGridColor() }, ticks: { color: getChartTextColor(), callback: v => '$' + (v / 1000).toFixed(0) + 'k' } }
         },
       }
     });
@@ -628,7 +619,6 @@
       { label: { zh: 'ASIC 效率', en: 'ASIC Efficiency' }, key: 'asicEfficiency', fmt: v => v + ' J/TH' },
       { label: { zh: '矿工成本/BTC', en: 'Miner Cost/BTC' }, key: 'costPerBTC', fmt: v => '$' + fmt(v) },
     ];
-
     tbody.innerHTML = metrics.map(m => {
       const bull = scenarioResults.bull.data.at(-1);
       const base = scenarioResults.base.data.at(-1);
@@ -644,7 +634,7 @@
     }).join('');
   }
 
-  // ── Auto-run forecast & scenarios on load ───────────────
+  // ── Auto-run ────────────────────────────────────────────
   runCustomForecast();
   runScenarios();
 

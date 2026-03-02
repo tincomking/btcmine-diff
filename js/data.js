@@ -4,14 +4,24 @@
 
 const DataLoader = (() => {
 
+  async function safeFetch(url, timeout = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
+    }
+  }
+
   // Blockchain.info API for historical difficulty
   async function fetchHistoricalDifficulty() {
     try {
-      // blockchain.info chart API — returns {values: [{x: timestamp, y: difficulty}]}
-      const url = 'https://api.blockchain.info/charts/difficulty?timespan=2years&format=json&cors=true';
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const data = await safeFetch('https://api.blockchain.info/charts/difficulty?timespan=2years&format=json&cors=true');
       return data.values.map(v => ({
         date: new Date(v.x * 1000),
         dateStr: new Date(v.x * 1000).toISOString().split('T')[0],
@@ -19,31 +29,7 @@ const DataLoader = (() => {
         difficultyT: v.y / 1e12,
       }));
     } catch (e) {
-      console.warn('Failed to fetch difficulty from blockchain.info:', e);
-      return fetchDifficultyFallback();
-    }
-  }
-
-  // Fallback: use CoinGecko-compatible hashrate data
-  async function fetchDifficultyFallback() {
-    try {
-      const url = 'https://api.blockchair.com/bitcoin/stats';
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      const d = data.data;
-      // Returns current snapshot only
-      return [{
-        date: new Date(),
-        dateStr: new Date().toISOString().split('T')[0],
-        difficulty: d.difficulty,
-        difficultyT: d.difficulty / 1e12,
-        hashrate: d.hashrate_24h,
-        blocks: d.blocks,
-        nextRetarget: d.next_retarget_time_estimate,
-      }];
-    } catch (e) {
-      console.warn('Fallback also failed:', e);
+      console.warn('[DataLoader] difficulty fetch failed:', e.message);
       return null;
     }
   }
@@ -51,15 +37,13 @@ const DataLoader = (() => {
   // Fetch current BTC price
   async function fetchBtcPrice() {
     try {
-      const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const data = await safeFetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
       return {
         price: data.bitcoin.usd,
         change24h: data.bitcoin.usd_24h_change,
       };
     } catch (e) {
-      console.warn('Failed to fetch BTC price:', e);
+      console.warn('[DataLoader] BTC price fetch failed:', e.message);
       return null;
     }
   }
@@ -67,67 +51,63 @@ const DataLoader = (() => {
   // Fetch current network stats from blockchair
   async function fetchNetworkStats() {
     try {
-      const resp = await fetch('https://api.blockchair.com/bitcoin/stats');
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const data = await safeFetch('https://api.blockchair.com/bitcoin/stats');
       const d = data.data;
       return {
         difficulty: d.difficulty,
         difficultyT: d.difficulty / 1e12,
-        hashrate24h: d.hashrate_24h,            // H/s string
+        hashrate24h: d.hashrate_24h,
         hashrateEH: parseFloat(d.hashrate_24h) / 1e18,
         blocks: d.blocks,
         blockHeight: d.blocks,
         bestBlockTime: d.best_block_time,
         nextRetargetEstimate: d.next_retarget_time_estimate,
         nextDifficultyEstimate: d.next_difficulty_estimate,
-        countdownBlocks: d.countdowns?.next_retarget_blocks_left,
         mempoolTxs: d.mempool_transactions,
-        mempoolSize: d.mempool_size,
-        avgBlockTime: d.average_transaction_fee_24h,
-        suggestedFee: d.suggested_transaction_fee_per_byte_sat,
       };
     } catch (e) {
-      console.warn('Failed to fetch network stats:', e);
+      console.warn('[DataLoader] network stats fetch failed:', e.message);
       return null;
     }
   }
 
-  // Fetch hashrate history
+  // Fetch hashrate history — blockchain.info returns TH/s
   async function fetchHistoricalHashrate() {
     try {
-      const url = 'https://api.blockchain.info/charts/hash-rate?timespan=2years&format=json&cors=true';
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const data = await safeFetch('https://api.blockchain.info/charts/hash-rate?timespan=2years&format=json&cors=true');
+      const unit = (data.unit || '').toLowerCase();
+      // API unit is "TH/s" — convert to EH/s: 1 EH = 1e6 TH
+      // If unit ever changes, handle dynamically
+      let divisor = 1e6; // TH/s → EH/s
+      if (unit.includes('gh')) divisor = 1e9;
+      if (unit.includes('ph')) divisor = 1e3;
       return data.values.map(v => ({
         date: new Date(v.x * 1000),
         dateStr: new Date(v.x * 1000).toISOString().split('T')[0],
-        hashrate: v.y,           // GH/s from blockchain.info
-        hashrateEH: v.y / 1e9,  // convert GH/s to EH/s
+        hashrate: v.y,
+        hashrateEH: v.y / divisor,
       }));
     } catch (e) {
-      console.warn('Failed to fetch hashrate history:', e);
+      console.warn('[DataLoader] hashrate history fetch failed:', e.message);
       return null;
     }
   }
 
-  // Load all data in parallel
+  // Load all data in parallel — each is independent, one failure doesn't affect others
   async function loadAll() {
-    const [difficulty, btcPrice, networkStats, hashrate] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchHistoricalDifficulty(),
       fetchBtcPrice(),
       fetchNetworkStats(),
       fetchHistoricalHashrate(),
     ]);
-    return { difficulty, btcPrice, networkStats, hashrate };
+    return {
+      difficulty: results[0].status === 'fulfilled' ? results[0].value : null,
+      btcPrice:   results[1].status === 'fulfilled' ? results[1].value : null,
+      networkStats: results[2].status === 'fulfilled' ? results[2].value : null,
+      hashrate:   results[3].status === 'fulfilled' ? results[3].value : null,
+    };
   }
 
-  return {
-    fetchHistoricalDifficulty,
-    fetchBtcPrice,
-    fetchNetworkStats,
-    fetchHistoricalHashrate,
-    loadAll,
-  };
+  return { loadAll };
 })();
