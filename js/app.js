@@ -16,14 +16,6 @@
   let scenarioResults = null;
   let data = null;
 
-  function debugLog(msg) {
-    console.log('[App]', msg);
-    var el = document.getElementById('debugLog');
-    if (el) el.textContent += msg + '\n';
-  }
-
-  debugLog('App init started');
-
   // ── Navigation ──────────────────────────────────────────
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -148,16 +140,10 @@
   // ── Load data ───────────────────────────────────────────
   try {
     setStatus('LOADING', 'var(--orange)');
-    debugLog('Fetching data...');
     data = await DataLoader.loadAll();
-    debugLog('Data loaded: difficulty=' + (data.difficulty ? data.difficulty.length + ' pts' : 'null')
-      + ', btcPrice=' + (data.btcPrice ? '$' + data.btcPrice.price : 'null')
-      + ', networkStats=' + (data.networkStats ? 'OK' : 'null')
-      + ', hashrate=' + (data.hashrate ? data.hashrate.length + ' pts' : 'null'));
     const hasAny = data.difficulty || data.btcPrice || data.networkStats || data.hashrate;
     setStatus(hasAny ? 'LIVE' : 'OFFLINE', hasAny ? 'var(--green)' : 'var(--red)');
   } catch (e) {
-    debugLog('loadAll FAILED: ' + e.message);
     console.error('[App] loadAll failed:', e);
     setStatus('ERROR', 'var(--red)');
     data = { difficulty: null, btcPrice: null, networkStats: null, hashrate: null };

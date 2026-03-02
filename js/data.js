@@ -1,5 +1,6 @@
 /**
- * Data fetching layer — historical difficulty & BTC price from public APIs
+ * Data fetching layer
+ * Sources: mempool.space (hashrate + difficulty), CoinGecko (price), Blockchair (network stats)
  */
 
 const DataLoader = (() => {
@@ -18,23 +19,38 @@ const DataLoader = (() => {
     }
   }
 
-  // Blockchain.info API for historical difficulty
-  async function fetchHistoricalDifficulty() {
+  // mempool.space — returns both hashrate and difficulty history with CORS
+  async function fetchMempoolMining() {
     try {
-      const data = await safeFetch('https://api.blockchain.info/charts/difficulty?timespan=2years&format=json&cors=true');
-      return data.values.map(v => ({
-        date: new Date(v.x * 1000),
-        dateStr: new Date(v.x * 1000).toISOString().split('T')[0],
-        difficulty: v.y,
-        difficultyT: v.y / 1e12,
+      const data = await safeFetch('https://mempool.space/api/v1/mining/hashrate/2y');
+      const difficulty = (data.difficulty || []).map(d => ({
+        date: new Date(d.time * 1000),
+        dateStr: new Date(d.time * 1000).toISOString().split('T')[0],
+        difficulty: d.difficulty,
+        difficultyT: d.difficulty / 1e12,
+        height: d.height,
+        adjustment: d.adjustment,
       }));
+      // hashrates: avgHashrate is in H/s
+      const hashrate = (data.hashrates || []).map(h => ({
+        date: new Date(h.timestamp * 1000),
+        dateStr: new Date(h.timestamp * 1000).toISOString().split('T')[0],
+        hashrate: h.avgHashrate,
+        hashrateEH: h.avgHashrate / 1e18,
+      }));
+      return {
+        difficulty,
+        hashrate,
+        currentHashrate: data.currentHashrate,
+        currentDifficulty: data.currentDifficulty,
+      };
     } catch (e) {
-      console.warn('[DataLoader] difficulty fetch failed:', e.message);
+      console.warn('[DataLoader] mempool.space fetch failed:', e.message);
       return null;
     }
   }
 
-  // Fetch current BTC price
+  // CoinGecko — BTC price
   async function fetchBtcPrice() {
     try {
       const data = await safeFetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
@@ -48,7 +64,7 @@ const DataLoader = (() => {
     }
   }
 
-  // Fetch current network stats from blockchair
+  // Blockchair — network stats
   async function fetchNetworkStats() {
     try {
       const data = await safeFetch('https://api.blockchair.com/bitcoin/stats');
@@ -71,41 +87,19 @@ const DataLoader = (() => {
     }
   }
 
-  // Fetch hashrate history — blockchain.info returns TH/s
-  async function fetchHistoricalHashrate() {
-    try {
-      const data = await safeFetch('https://api.blockchain.info/charts/hash-rate?timespan=2years&format=json&cors=true');
-      const unit = (data.unit || '').toLowerCase();
-      // API unit is "TH/s" — convert to EH/s: 1 EH = 1e6 TH
-      // If unit ever changes, handle dynamically
-      let divisor = 1e6; // TH/s → EH/s
-      if (unit.includes('gh')) divisor = 1e9;
-      if (unit.includes('ph')) divisor = 1e3;
-      return data.values.map(v => ({
-        date: new Date(v.x * 1000),
-        dateStr: new Date(v.x * 1000).toISOString().split('T')[0],
-        hashrate: v.y,
-        hashrateEH: v.y / divisor,
-      }));
-    } catch (e) {
-      console.warn('[DataLoader] hashrate history fetch failed:', e.message);
-      return null;
-    }
-  }
-
-  // Load all data in parallel — each is independent, one failure doesn't affect others
+  // Load all data in parallel
   async function loadAll() {
     const results = await Promise.allSettled([
-      fetchHistoricalDifficulty(),
+      fetchMempoolMining(),
       fetchBtcPrice(),
       fetchNetworkStats(),
-      fetchHistoricalHashrate(),
     ]);
+    const mining = results[0].status === 'fulfilled' ? results[0].value : null;
     return {
-      difficulty: results[0].status === 'fulfilled' ? results[0].value : null,
-      btcPrice:   results[1].status === 'fulfilled' ? results[1].value : null,
+      difficulty: mining ? mining.difficulty : null,
+      hashrate: mining ? mining.hashrate : null,
+      btcPrice: results[1].status === 'fulfilled' ? results[1].value : null,
       networkStats: results[2].status === 'fulfilled' ? results[2].value : null,
-      hashrate:   results[3].status === 'fulfilled' ? results[3].value : null,
     };
   }
 

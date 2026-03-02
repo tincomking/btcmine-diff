@@ -14,19 +14,6 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<script>
-  // Global error catcher — shows errors visually for debugging
-  window.onerror = function(msg, src, line, col, err) {
-    console.error('[GLOBAL]', msg, src, line);
-    var d = document.getElementById('debugLog');
-    if (d) d.textContent += '[ERR] ' + msg + ' @ ' + (src||'').split('/').pop() + ':' + line + '\n';
-  };
-  window.addEventListener('unhandledrejection', function(e) {
-    console.error('[PROMISE]', e.reason);
-    var d = document.getElementById('debugLog');
-    if (d) d.textContent += '[PROMISE] ' + (e.reason && e.reason.message || e.reason) + '\n';
-  });
-</script>
 
 <!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
 <header id="header">
@@ -379,7 +366,6 @@
 <!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
 <div class="footer">
   <span>BTC Difficulty Forecast · Supply-Demand Equilibrium Model · <a href="https://btcmine.info" target="_blank">btcmine.info</a></span>
-  <pre id="debugLog" style="margin-top:12px;text-align:left;font-size:10px;color:#ef4444;max-height:200px;overflow:auto;white-space:pre-wrap;"></pre>
 </div>
 
 <script src="js/model.js"></script>
