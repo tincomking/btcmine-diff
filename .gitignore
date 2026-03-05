@@ -1,0 +1,30 @@
+# Environment variables
+.env*
+
+# Dependencies
+node_modules/
+
+# Python
+*.pyc
+__pycache__/
+*.pyo
+venv/
+.venv/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Data artifacts
+*.csv
+*.pkl
